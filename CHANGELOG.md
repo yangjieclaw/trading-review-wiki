@@ -18,6 +18,7 @@
 
 ### 改进（Improvement）
 
+- **公开介绍页降敏**：README 中的本地路径、SQL 凭据示例和钥匙串条目细节改为通用说明，同时补充历史桌面版 Releases 入口，方便用户在 CLI 工具层和旧桌面应用之间选择。
 - **Predicate 词表细分**：在原有 `HAS_ORDER`、`HAS_VALIDATION_SIGNAL`、`HAS_RISK` 基础上增加订单事实强度、价格/量/客户/技术/基本面验证，以及澄清、竞争、需求、供应链、估值风险等细分 predicate。
 - **概念别名审计降噪**：Alias 只保留 frontmatter aliases、标题拆分和括号同义；tags 与正文缩写拆成独立候选，避免 `国产替代`、`AI`、`Call` 等泛词制造假冲突。
 - **Plan budget 软告警**：`--max-plan-items`、`--max-create-pages`、`--max-update-pages` 改为写入 `plan-budget.json` 的软告警，不阻断正常多页面摄入。
@@ -65,7 +66,7 @@
 - **Ingest token 排名收紧**：[`extractSourceTokens`] 新增对中文长短语、路径噪声、日期、通用字段名、无意义英文 token 的过滤和权重排序，减少 `content/source/theme/date` 等泛词污染候选集。
 - **Schema-aware ask 与 ingest 检索硬化**：[`scripts/codex-ingest-lib.mjs`、`src/lib/search.ts`、`src/lib/templates.ts`] 检索层更尊重 Schema v1 页面结构，区分 ask 与 ingest 的召回目标：ask 偏去噪和够用，ingest 偏广召回和不漏候选。
 - **Programmatic housekeeping merge**：[`scripts/codex-ingest-lib.mjs`、`src/lib/ingest.ts`] ingest 后的 index/overview/log 等 housekeeping 合并更程序化，减少 LLM 大段重写导致目录页损坏或缩水。
-- **Keychain 自动加载 SQL 密码**：[`scripts/tw-ask.sh`、`scripts/codex-ingest-lib.mjs`] 当 `PG_SHIHAO_PASSWORD` 未设置时，`tw-ask.sh` 可从 macOS Keychain 的 `trading-wiki-cn-stock-db / shihao` 读取股票 SQL 密码，并注入默认 host/port/user/database/schema/table。文档和输出均不打印密码。
+- **本地凭据加载 SQL 配置**：[`scripts/tw-ask.sh`、`scripts/codex-ingest-lib.mjs`] 股票 SQL 只从本机环境变量、私有配置文件或系统钥匙串读取连接信息。公开文档不记录具体主机、端口、用户名、钥匙串条目名称或密码值，输出也不打印密码。
 - **Daily-loop 多源市场验证**：[`marketValidation`] 本地 SQL 与外部 Tencent K-line 交叉验证成为 daily-loop 可观测字段，状态包括 `confirmed`、`sql_stale`、`divergent`、`sql_only`、`external_only`、`unavailable`，避免单一源滞后造成错误结论。
 
 ### 修复（Bug Fix）

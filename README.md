@@ -12,6 +12,12 @@
 - Wiki 维护和检索质量治理：`hygiene / ask eval / vector maintenance`
 - Gangtise/OpenClaw 主题资料导出与摄入辅助
 
+## Desktop App Builds
+
+If you want the earlier Tauri desktop app instead of the Codex CLI toolchain, use the historical desktop builds from [GitHub Releases](https://github.com/ymj8903668-droid/trading-review-wiki/releases). The desktop app keeps the familiar three-pane wiki UI, quick review workflow, settlement import, graph view, settings panel, and Save to Wiki flow.
+
+The current `main` branch is optimized for CLI automation and agent-assisted wiki maintenance. Desktop users can keep using the published release artifacts while CLI users work from source.
+
 ## v0.10.5 更新重点
 
 本次公开更新把 CLI 从“能摄入、能检索”推进到“能追踪事实状态”的轻量 Graphiti-style 时序事实层：
@@ -24,14 +30,14 @@
 
 详细设计见 [`docs/temporal-facts-v1.md`](docs/temporal-facts-v1.md)，完整更新说明见 [`CHANGELOG.md`](CHANGELOG.md)。
 
-## 目录边界
+## Directory Boundaries
 
 | 路径 | 角色 | 写入规则 |
 |---|---|---|
-| `/Users/jiegege/Downloads/trading-review-wiki-0.10.311` | CLI/桌面源码仓库 | 开发和提交工具代码 |
-| `/Users/jiegege/Desktop/杰杰杰` | live Trading Review Wiki 知识库 | 默认项目；raw/wiki/brain 数据在这里 |
-| `/Users/jiegege/.codex/skills/*` | Codex skills 入口 | 自动化工作流的可复用包装 |
-| `/Users/jiegege/.codex/automations/*` | 自动化环境 | 定时任务、DB config、局部 CODEX_HOME |
+| 本仓库 | CLI/桌面源码仓库 | 开发和提交工具代码 |
+| 本地 Trading Review Wiki 工作区 | live 知识库 | `raw/`、`wiki/`、`data/brain/`、`data/facts/` 数据在这里 |
+| 本地 Codex skills 目录 | Codex skills 入口 | 自动化工作流的可复用包装 |
+| 本地自动化目录 | 自动化环境 | 定时任务、DB config、局部 `CODEX_HOME` |
 
 重要约束：
 
@@ -44,15 +50,15 @@
 ## 快速开始
 
 ```sh
-cd /Users/jiegege/Downloads/trading-review-wiki-0.10.311
+cd /path/to/trading-review-wiki
 npm install
 npm test -- --run
 ```
 
-默认 live project：
+示例 project 路径：
 
 ```sh
-/Users/jiegege/Desktop/杰杰杰
+/path/to/your/trading-review-wiki-project
 ```
 
 默认使用本地 Codex 登录态：
@@ -68,7 +74,7 @@ npm test -- --run
 ```sh
 npm run codex:ingest -- ask \
   --query "最近一周机器人产业链有哪些变化？区分订单兑现和情绪催化" \
-  --project /Users/jiegege/Desktop/杰杰杰 \
+  --project /path/to/your/trading-review-wiki-project \
   --provider codex \
   --show-context \
   --show-sources
@@ -100,7 +106,7 @@ npm run codex:ingest -- ask \
 ```sh
 npm run codex:ingest -- ask \
   --query "机器人产业链里哪些订单或验证信号后来被反驳过？" \
-  --project /Users/jiegege/Desktop/杰杰杰 \
+  --project /path/to/your/trading-review-wiki-project \
   --provider codex \
   --sources wiki,raw,graph,facts \
   --include-invalidated \
@@ -126,7 +132,7 @@ npm run codex:ingest -- ask \
 
 ```sh
 npm run codex:ingest -- temporal-facts audit \
-  --project /Users/jiegege/Desktop/杰杰杰 \
+  --project /path/to/your/trading-review-wiki-project \
   --limit 200
 ```
 
@@ -143,11 +149,11 @@ npm run codex:ingest -- temporal-facts audit \
 ```sh
 npm run codex:ingest -- prepare \
   --source /path/to/source.md \
-  --project /Users/jiegege/Desktop/杰杰杰
+  --project /path/to/your/trading-review-wiki-project
 
 npm run codex:ingest -- api-run \
   --source /path/to/source.md \
-  --project /Users/jiegege/Desktop/杰杰杰 \
+  --project /path/to/your/trading-review-wiki-project \
   --provider codex \
   --model gpt-5.5
 
@@ -157,7 +163,7 @@ npm run codex:ingest -- finalize \
 
 npm run codex:ingest -- apply \
   --manifest /path/to/changes.json \
-  --project /Users/jiegege/Desktop/杰杰杰 \
+  --project /path/to/your/trading-review-wiki-project \
   --write
 ```
 
@@ -177,7 +183,7 @@ npm run codex:ingest -- apply \
 ```sh
 npm run codex:ingest -- daily-loop \
   --mode premarket \
-  --project /Users/jiegege/Desktop/杰杰杰 \
+  --project /path/to/your/trading-review-wiki-project \
   --provider codex \
   --model gpt-5.5 \
   --reasoning-effort xhigh \
@@ -193,15 +199,15 @@ npm run codex:ingest -- daily-loop \
 npm run codex:ingest -- daily-loop \
   --mode postclose \
   --validate-pending-only \
-  --project /Users/jiegege/Desktop/杰杰杰 \
+  --project /path/to/your/trading-review-wiki-project \
   --write
 ```
 
 包装脚本：
 
 ```sh
-/Users/jiegege/.codex/skills/trading-wiki-mpa-loop/scripts/daily-loop-premarket-research.sh
-/Users/jiegege/.codex/skills/trading-wiki-mpa-loop/scripts/daily-loop-postclose-pending.sh
+<codex-skills-dir>/trading-wiki-mpa-loop/scripts/daily-loop-premarket-research.sh
+<codex-skills-dir>/trading-wiki-mpa-loop/scripts/daily-loop-postclose-pending.sh
 ```
 
 语义：
@@ -209,14 +215,14 @@ npm run codex:ingest -- daily-loop \
 - 预测从 `prediction.createdAt / answeredAt / date` 后的第一个交易日开始验证。
 - 1/3/5/10/20 日窗口是 horizon tracks，不是互相覆盖。
 - 周末和非交易日默认 skip，除非手动 `--force`。
-- SQL 真值来源是 `cn_stock_db.public.cn_stock_price_daily_wind`。
+- SQL 真值来源由本地只读配置指定。
 
 ### 公司深度研究
 
 ```sh
 npm run codex:ingest -- company-research \
   --stock "绿的谐波" \
-  --project /Users/jiegege/Desktop/杰杰杰 \
+  --project /path/to/your/trading-review-wiki-project \
   --provider codex \
   --deep
 ```
@@ -242,15 +248,15 @@ npm run codex:ingest -- company-research \
 npm run codex:ingest -- brain remember \
   --type correction \
   --text "高开接盘必须看承接，不允许把热度当作买点" \
-  --project /Users/jiegege/Desktop/杰杰杰
+  --project /path/to/your/trading-review-wiki-project
 
 npm run codex:ingest -- brain status \
-  --project /Users/jiegege/Desktop/杰杰杰
+  --project /path/to/your/trading-review-wiki-project
 
 npm run codex:ingest -- brain resolve \
   --id <brain-id> \
   --result success \
-  --project /Users/jiegege/Desktop/杰杰杰
+  --project /path/to/your/trading-review-wiki-project
 ```
 
 ### 行情验证
@@ -260,7 +266,7 @@ npm run codex:ingest -- market-validate \
   --prediction "绿的谐波机器人链条继续走强" \
   --stock "688017" \
   --window 20d \
-  --project /Users/jiegege/Desktop/杰杰杰
+  --project /path/to/your/trading-review-wiki-project
 ```
 
 ### 检索质量评估
@@ -269,20 +275,20 @@ npm run codex:ingest -- market-validate \
 npm run codex:ingest -- ask eval \
   --query "物理AI 绿的谐波 谐波减速器 机器人" \
   --expect-paths "wiki/股票/绿的谐波.md,wiki/概念/物理AI与具身智能.md" \
-  --project /Users/jiegege/Desktop/杰杰杰
+  --project /path/to/your/trading-review-wiki-project
 ```
 
 ### Wiki hygiene
 
 ```sh
 npm run codex:ingest -- hygiene audit \
-  --project /Users/jiegege/Desktop/杰杰杰
+  --project /path/to/your/trading-review-wiki-project
 
 npm run codex:ingest -- hygiene plan \
-  --project /Users/jiegege/Desktop/杰杰杰
+  --project /path/to/your/trading-review-wiki-project
 
 npm run codex:ingest -- hygiene apply \
-  --project /Users/jiegege/Desktop/杰杰杰 \
+  --project /path/to/your/trading-review-wiki-project \
   --write
 ```
 
@@ -338,33 +344,14 @@ flowchart TD
 
 ## 股票 SQL 配置
 
-SQL 源只接受本地环境或本地配置，不在命令行打印密码。
+股票 SQL 是可选只读源，只从本机环境变量、私有配置文件或系统钥匙串读取连接信息。公开文档不记录具体主机、端口、用户名、配置文件路径、钥匙串条目名称或密码值。
 
-支持环境变量：
+配置原则：
 
-```text
-PG_SHIHAO_HOST
-PG_SHIHAO_PORT
-PG_SHIHAO_USER
-PG_SHIHAO_PASSWORD
-PG_SHIHAO_DATABASE
-PG_SHIHAO_SCHEMA
-PG_SHIHAO_STOCK_DAILY_TABLE
-PG_SHIHAO_CONFIG_PATH
-```
-
-推荐本地配置：
-
-```sh
-export PG_SHIHAO_CONFIG_PATH=/Users/jiegege/.codex/automations/gangtise-schema/db-config.json
-```
-
-`tw-ask.sh` 还会在没有 `PG_SHIHAO_PASSWORD` 时尝试从 macOS Keychain 读取：
-
-```text
-service: trading-wiki-cn-stock-db
-account: shihao
-```
+- 连接信息留在本机，不写入仓库。
+- 密码不打印、不落盘、不进入命令行示例。
+- 配置缺失时返回 evidence insufficiency，不编造行情。
+- 共享仓库时只提交变量名和安全规则，不提交个人连接细节。
 
 安全规则：
 
@@ -404,7 +391,7 @@ git diff --check
 - ingest 候选分段召回，降低长源多主题漏召回
 - daily-loop 锚定第一个交易日后的多窗口验证
 - 本地 SQL + Tencent 外部行情交叉验证
-- Keychain 自动加载股票 SQL 密码
+- 本地凭据加载股票 SQL 配置
 - vector store 维护命令
 - wiki housekeeping 日志与安全 raw search policy
 

@@ -32,7 +32,9 @@
 
 ## Codex CLI 工具层
 
-当前仓库同时承载桌面应用和面向 live 交易复盘知识库的 Codex CLI 工具层。CLI 的默认知识库是 `/Users/jiegege/Desktop/杰杰杰`，核心目标是把 `raw/` 原始资料、正式 `wiki/` 页面、图谱、长期纠错记忆、结构化事实和行情 SQL 组织成一个可检索、可验证、可迭代的研究系统。
+当前 `main` 分支重点是面向本地交易复盘知识库的 Codex CLI 工具层。CLI 的目标是把 `raw/` 原始资料、正式 `wiki/` 页面、图谱、长期纠错记忆、结构化事实和可选只读行情 SQL 组织成一个可检索、可验证、可迭代的研究系统。
+
+如果你想使用之前的 Tauri 桌面应用，而不是 CLI 自动化工具链，可以继续从 [GitHub Releases](https://github.com/ymj8903668-droid/trading-review-wiki/releases) 下载历史桌面版构建。桌面版保留三栏 Wiki UI、快速复盘、交割单导入、图谱视图、设置面板和 Save to Wiki 工作流。
 
 v0.10.5-codex-cli 的重点更新：
 
@@ -46,12 +48,12 @@ v0.10.5-codex-cli 的重点更新：
 
 ```sh
 npm run codex:ingest -- temporal-facts audit \
-  --project /Users/jiegege/Desktop/杰杰杰 \
+  --project /path/to/your/trading-review-wiki-project \
   --limit 200
 
 npm run codex:ingest -- ask \
   --query "最近哪些机器人产业链事实后来被反驳或替代？" \
-  --project /Users/jiegege/Desktop/杰杰杰 \
+  --project /path/to/your/trading-review-wiki-project \
   --sources wiki,raw,graph,facts \
   --include-invalidated \
   --show-sources
@@ -132,8 +134,8 @@ npm run codex:ingest -- ask \
 
 ## 下载
 
-- **Windows**: [Trading Review Wiki_0.7.6_x64-setup.exe](https://github.com/ymj8903668-droid/trading-review-wiki/releases/latest)
-- **macOS**: 通过 GitHub Releases 下载 `.dmg`（Apple Silicon）
+- **桌面版历史构建**：从 [GitHub Releases](https://github.com/ymj8903668-droid/trading-review-wiki/releases) 下载 Windows 安装包或 macOS `.dmg`。
+- **CLI 工具层**：当前 `main` 分支面向源码运行和 Codex 自动化，不等同于桌面版 release artifact。
   - ⚠️ **注意**：当前版本未进行 Apple 代码签名，首次打开可能提示"已损坏"。绕过方法：终端执行 `xattr -c /Applications/Trading\ Review\ Wiki.app`，或右键 → 打开。
 
 ## 技术栈
