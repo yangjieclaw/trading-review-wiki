@@ -28,11 +28,14 @@ import {
   rememberBrainMemory,
   resolveBrainMemory,
   runAskEval,
+  runAskSearch,
+  runAskSmartSearch,
   runCompanyResearch,
   runDailyLoop,
   runHygiene,
   runSelfTraining,
   runTemporalFactsAudit,
+  routeAskSearchPreset,
   searchCandidatePages,
   selectAskSources,
   tokenizeQuery,
@@ -927,6 +930,110 @@ LogicFolding 可能和华为τ定律页面冲突。
     expect(candidates.wikiCandidates.every((item) => item.retrievalMode === "ingest")).toBe(true)
     expect(context.retrievalMode).toBe("ask")
     expect(context.wikiResults.every((item) => item.retrievalMode === "ask")).toBe(true)
+  })
+
+  it("routes search presets by question shape", () => {
+    expect(routeAskSearchPreset("2026-06-12 Codex 交易计划 验证").preset).toBe("validate")
+    expect(routeAskSearchPreset("AI服务器PCB 上游材料 扩散").preset).toBe("industry")
+    expect(routeAskSearchPreset("算电协同").preset).toBe("quick")
+    expect(routeAskSearchPreset("最近一个月AI服务器电源和电力运营商重估之间的证据链有什么变化").preset).toBe("deep")
+  })
+
+  it("runs tier-1 ask search without model calls", async () => {
+    const result = await runAskSearch({
+      projectPath: tmpRoot,
+      query: "AI服务器电源 最近一周",
+      preset: "quick",
+      topWiki: 3,
+      topRaw: 3,
+    })
+
+    expect(result.tier).toBe("tier1")
+    expect(result.backend).toBe("search")
+    expect(result.preset).toBe("quick")
+    expect(result.modelCalls).toEqual({
+      planner: false,
+      sourceRouter: false,
+      reranker: false,
+      answer: false,
+    })
+    expect(result.sourceRouting.mode).toBe("explicit")
+    expect(result.results.wiki.map((item) => item.path)).toContain("wiki/概念/算电协同.md")
+    expect(result.results.raw.map((item) => item.path)).toContain("raw/研报新闻/2026-05-28-AI服务器电源.md")
+  })
+
+  it("runs tier-2 smart search with model planning and rerank but no final answer", async () => {
+    const stages = []
+    const result = await runAskSmartSearch({
+      projectPath: tmpRoot,
+      query: "AI服务器电源 最近一周",
+      preset: "quick",
+      topWiki: 3,
+      topRaw: 3,
+      requestSmartSearchText: async ({ stage }) => {
+        stages.push(stage)
+        if (stage === "smart-search-plan") {
+          return JSON.stringify({
+            intent: "quick",
+            sources: ["wiki", "raw", "graph"],
+            queries: [{ query: "AI服务器电源 最近一周", reason: "original user query" }],
+            expanded_terms: ["算电协同", "数据中心供电"],
+            include_invalidated: false,
+            ranking_rules: ["prefer formal wiki for durable conclusions"],
+            evidence_gaps_to_watch: ["watch current order validation"],
+          })
+        }
+        return JSON.stringify({
+          ranked_ids: [{ id: "wiki:1", why: "core durable concept page" }],
+          evidence_gaps: ["needs latest market validation"],
+          warnings: ["raw evidence may be stale"],
+        })
+      },
+    })
+
+    expect(stages).toEqual(["smart-search-plan", "smart-search-rerank"])
+    expect(result.tier).toBe("tier2")
+    expect(result.backend).toBe("smart-search")
+    expect(result.modelCalls).toEqual({
+      planner: true,
+      sourceRouter: false,
+      reranker: true,
+      answer: false,
+    })
+    expect(result.plan.sources).toBe("wiki,raw,graph")
+    expect(result.rankedEvidence[0]).toMatchObject({
+      id: "wiki:1",
+      path: "wiki/概念/算电协同.md",
+      why: "core durable concept page",
+    })
+    expect(result.evidenceGaps).toContain("needs latest market validation")
+    expect(result.warnings).toContain("raw evidence may be stale")
+  })
+
+  it("falls back to tier-1 retrieval when smart-search planning fails", async () => {
+    const result = await runAskSmartSearch({
+      projectPath: tmpRoot,
+      query: "AI服务器电源 最近一周",
+      preset: "quick",
+      requestSmartSearchText: async () => {
+        throw new Error("planner unavailable")
+      },
+    })
+
+    expect(result.backend).toBe("smart-search-fallback")
+    expect(result.tier).toBe("tier1")
+    expect(result.fallback).toMatchObject({
+      stage: "smart-search-plan",
+      reason: "planner unavailable",
+    })
+    expect(result.modelCalls).toEqual({
+      planner: true,
+      sourceRouter: false,
+      reranker: false,
+      answer: false,
+    })
+    expect(result.results.wiki.map((item) => item.path)).toContain("wiki/概念/算电协同.md")
+    expect(result.warnings[0]).toContain("fell back to tier-1 search")
   })
 
   it("ask retrieval reads frontmatter freshness and decays stale topic pages", async () => {

@@ -2,24 +2,35 @@
 
 ## 1. 总览
 
-当前 Trading Review Wiki 的 RAG 主链路是：
+当前 Trading Review Wiki 的检索主链路拆成三档：
 
 ```text
-tw-ask.sh
-  -> npm run codex:ingest -- ask
-  -> askWiki()
+search
+  -> runAskSearch()
   -> buildAskRetrievalContext()
   -> 多源召回 / 融合 / 编号
+  -> 输出人可读证据列表，不调用模型生成答案
+
+smart-search
+  -> runAskSmartSearch()
+  -> LLM 生成检索计划
+  -> runAskSearch() 做本地多查询召回
+  -> LLM 证据重排
+  -> 输出证据排序和缺口，不生成答案
+
+ask
+  -> askWiki()
+  -> buildAskRetrievalContext()
   -> buildAskPrompt()
-  -> Codex 或 OpenAI 生成答案
+  -> Codex 或 OpenAI 生成带引用答案
 ```
 
 这套系统不是单一向量库问答，而是「正式 wiki 为主知识层，raw / graph / facts / brain / SQL / vector 作为补充层」的混合检索。
 
 ```mermaid
 flowchart TD
-  A["用户问题"] --> B["tw-ask.sh 补默认 project/provider"]
-  B --> C["codex-ingest ask"]
+  A["用户问题"] --> B["search / smart-search / ask"]
+  B --> C["preset 路由 quick/deep/validate/industry"]
   C --> D["selectAskSources 源路由"]
   D --> E["wiki/raw 候选召回"]
   D --> F["graph 有界扩展"]
@@ -32,20 +43,42 @@ flowchart TD
   H --> J
   I --> K["Market Validation"]
   K --> J
-  J --> L["buildAskPrompt 带 W/R/G/F/M/S 编号"]
-  L --> M["Codex/OpenAI 生成六段式回答"]
+  J --> L{"入口"}
+  L --> M["search: 证据列表"]
+  L --> N["smart-search: LLM 重排证据"]
+  L --> O["ask: buildAskPrompt"]
+  O --> P["Codex/OpenAI 生成六段式回答"]
 ```
 
 关键入口：
 
-- 技能入口：`/Users/jiegege/.codex/skills/trading-wiki-ask/scripts/tw-ask.sh`
-- CLI 分发：`/Users/jiegege/Downloads/trading-review-wiki-0.10.311/scripts/codex-ingest.mjs`
-- 核心实现：`/Users/jiegege/Downloads/trading-review-wiki-0.10.311/scripts/codex-ingest-lib.mjs`
-- 实时知识库：`/Users/jiegege/Desktop/杰杰杰`
+- CLI 分发：`scripts/codex-ingest.mjs`
+- 核心实现：`scripts/codex-ingest-lib.mjs`
+- 实时知识库：由 `--project /path/to/wiki` 指定
 
-## 2. Source 注册层
+## 2. 三档入口
 
-`ask` 当前支持 6 类 source：
+| 命令 | 模型介入 | 输出 | 默认用途 |
+|---|---|---|---|
+| `search` | 不调用模型 | 人可读证据列表或 JSON | 快速查证据、查原文、看召回 |
+| `smart-search` | 只做检索计划和证据重排，失败时默认退回本地检索 | 子查询、证据排序、证据缺口 | 复杂问题、产业链扩散、旧计划验证 |
+| `ask` | 检索后生成最终回答 | 六段式带引用回答 | 需要直接看结论和交易含义 |
+
+`search` 和 `smart-search` 都是证据检索，不会把片段写成结论；需要最终结论时才进入 `ask`。`smart-search --no-fallback` 可关闭默认降级。
+
+预设：
+
+| preset | 来源组合 | 场景 |
+|---|---|---|
+| `quick` | `wiki,raw,graph` | 页面、实体、精确线索 |
+| `deep` | `wiki,raw,graph,facts,brain` | 综合复盘问题 |
+| `validate` | `wiki,raw,graph,facts,brain,stock-price` | 旧计划验证、证伪、当前状态 |
+| `industry` | `wiki,raw,graph,facts` | 产业链、题材扩散、上下游 |
+| `auto` | 自动选择上面四类 | 默认 |
+
+## 3. Source 注册层
+
+当前支持 6 类 source：
 
 | source | 数据位置 | 含义 | 主要角色 |
 |---|---|---|---|
@@ -71,7 +104,7 @@ flowchart TD
 
 注意：`sourceK` 不是硬上限。规则层如果判断某些源是 required，实际 selected sources 可以超过 `sourceK`。
 
-## 3. Source 路由层
+## 4. Source 路由层
 
 路由函数是：
 
@@ -119,7 +152,7 @@ selectAskSources()
 6. 如果为空，fallback 到 wiki/raw/graph
 ```
 
-## 4. Wiki / Raw 召回层
+## 5. Wiki / Raw 召回层
 
 主召回函数：
 
@@ -140,7 +173,7 @@ searchAskCandidates()
 8. 排序并裁剪 topWiki/topRaw
 ```
 
-### 4.1 Query 分词
+### 5.1 Query 分词
 
 `tokenizeQuery()` 会对中文做二元、三元和单字扩展。例如：
 
@@ -156,7 +189,7 @@ searchAskCandidates()
 
 之后会用 `tokenWeight()` 降权泛词、时间词、单字噪声，保留更像交易证据的词。
 
-### 4.2 Raw 扫描策略
+### 5.2 Raw 扫描策略
 
 raw 目录会快速膨胀，所以 ask 模式不会全量扫到底。
 
@@ -173,7 +206,7 @@ raw 目录会快速膨胀，所以 ask 模式不会全量扫到底。
 - ask：去噪、鲜度、够用优先。
 - ingest：保召回、别漏候选优先。
 
-### 4.3 文件打分
+### 5.3 文件打分
 
 核心函数：
 
@@ -217,7 +250,7 @@ frontmatter freshness 规则：
 | 稳定知识保护 | `策略/模式/错误` 不做重罚，避免老经验因为时间久被误删出上下文 |
 | 调试字段 | `--show-context` 输出 `frontmatterUpdated / frontmatterUpdatedField / staleDays / freshnessScore` |
 
-### 4.4 Wiki 牵引 Raw
+### 5.4 Wiki 牵引 Raw
 
 系统会读取 top wiki 页面的 frontmatter `sources` 字段。
 
@@ -229,7 +262,7 @@ structuredSourceMatch
 
 这一步很关键。它让正式 wiki 页面可以反向牵引原始证据，而不是 raw 和 wiki 各自孤立召回。
 
-## 5. Graph 扩展层
+## 6. Graph 扩展层
 
 图谱函数：
 
@@ -280,7 +313,7 @@ G1, G2, G3...
 
 图谱不是替代正文召回，而是用来找到“同一链条上的相关节点”。
 
-## 6. Facts JSONL 层
+## 7. Facts JSONL 层
 
 函数：
 
@@ -319,7 +352,7 @@ F1, F2, F3...
 - 样本
 - 历史记录
 
-## 7. Brain Memory 层
+## 8. Brain Memory 层
 
 函数：
 
@@ -370,7 +403,7 @@ Brain Memory 只能作为先验、偏好、纠错、卫语句。
 如果 brain 与当前证据冲突，必须写入“分歧/反证”。
 ```
 
-## 8. Stock Daily SQL 层
+## 9. Stock Daily SQL 层
 
 函数：
 
@@ -449,7 +482,7 @@ Market Validation 只是只读市场验证摘要。
 不会自动写回 wiki / facts / brain。
 ```
 
-## 9. Evidence 编号和 Prompt 组装
+## 10. Evidence 编号和 Prompt 组装
 
 核心函数：
 
@@ -510,7 +543,7 @@ buildEvidenceExcerpt()
 | brain | 1800 |
 | SQL | 1800 |
 
-## 10. Answer 生成层
+## 11. Answer 生成层
 
 函数：
 
@@ -546,7 +579,7 @@ provider：
 例如 [W1]、[R2]、[G1]、[F1]、[M1]、[S1]。
 ```
 
-## 11. Vector 检索的位置
+## 12. Vector 检索的位置
 
 当前 CLI `ask` 主链路不是纯向量 RAG。
 
@@ -575,7 +608,7 @@ src/lib/embedding.ts
 
 所以当前架构里，向量是增强层，不是唯一真相源。
 
-## 12. Ask 与 Ingest 的区别
+## 13. Ask 与 Ingest 的区别
 
 虽然 ask 和 ingest 共用部分底层打分函数，但策略不同。
 
@@ -588,30 +621,42 @@ src/lib/embedding.ts
 | 写入 | 只读 | apply --write 才写 |
 | 关注点 | 证据够用、交易含义 | 页面结构、来源归档、schema |
 
-## 13. 调试命令
+## 14. 调试命令
 
-### 13.1 看源路由
+### 14.1 只看本地检索证据
 
 ```sh
-/Users/jiegege/.codex/skills/trading-wiki-ask/scripts/tw-ask.sh \
+npm run codex:ingest -- search \
   --query "你的问题" \
-  --show-sources
+  --project /path/to/your/wiki \
+  --preset auto
 ```
 
-### 13.2 看完整上下文
+### 14.2 复杂问题智能检索
 
 ```sh
-/Users/jiegege/.codex/skills/trading-wiki-ask/scripts/tw-ask.sh \
+npm run codex:ingest -- smart-search \
+  --query "产业链扩散或旧计划验证问题" \
+  --project /path/to/your/wiki \
+  --provider codex
+```
+
+### 14.3 看完整 ask 上下文
+
+```sh
+npm run codex:ingest -- ask \
   --query "你的问题" \
+  --project /path/to/your/wiki \
   --sources wiki,raw,graph,brain \
   --show-context
 ```
 
-### 13.3 强制 wiki/raw/graph
+### 14.4 强制 wiki/raw/graph
 
 ```sh
-/Users/jiegege/.codex/skills/trading-wiki-ask/scripts/tw-ask.sh \
+npm run codex:ingest -- ask \
   --query "最近一周机器人产业链有哪些变化" \
+  --project /path/to/your/wiki \
   --sources wiki,raw,graph \
   --top-wiki 16 \
   --top-raw 16 \
@@ -620,34 +665,37 @@ src/lib/embedding.ts
   --show-context
 ```
 
-### 13.4 加 brain memory
+### 14.5 加 brain memory
 
 ```sh
-/Users/jiegege/.codex/skills/trading-wiki-ask/scripts/tw-ask.sh \
+npm run codex:ingest -- ask \
   --query "最近我在高开接盘上犯过什么错误" \
+  --project /path/to/your/wiki \
   --sources wiki,raw,graph,brain \
   --show-context
 ```
 
-### 13.5 股价 / 量价验证
+### 14.6 股价 / 量价验证
 
 ```sh
-/Users/jiegege/.codex/skills/trading-wiki-ask/scripts/tw-ask.sh \
+npm run codex:ingest -- ask \
   --query "绿的谐波最近20个交易日涨跌幅、成交额和量能变化" \
+  --project /path/to/your/wiki \
   --sources wiki,raw,graph,stock-price \
   --show-context
 ```
 
-### 13.6 只查 SQL
+### 14.7 只查 SQL
 
 ```sh
-/Users/jiegege/.codex/skills/trading-wiki-ask/scripts/tw-ask.sh \
+npm run codex:ingest -- ask \
   --query "688017 最近20个交易日日线和成交额" \
+  --project /path/to/your/wiki \
   --sources stock-price \
   --show-context
 ```
 
-## 14. 当前系统的核心优点
+## 15. 当前系统的核心优点
 
 | 优点 | 解释 |
 |---|---|
@@ -660,7 +708,7 @@ src/lib/embedding.ts
 | 只读安全 | ask 不写 wiki/raw/brain |
 | 可诊断 | `--show-context` 和 `--show-sources` 能看到每一步证据 |
 
-## 15. 当前系统的风险点
+## 16. 当前系统的风险点
 
 | 风险 | 表现 | 处理方式 |
 |---|---|---|
@@ -671,7 +719,7 @@ src/lib/embedding.ts
 | SQL ticker 解析失败 | 股票名/代码无法映射 | query 中明确代码 |
 | vector stale | LanceDB 不同步时语义结果缺失 | 不把向量缺失当知识缺失 |
 
-## 16. 一句话定义
+## 17. 一句话定义
 
 这套 RAG 是：
 

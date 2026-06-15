@@ -142,6 +142,103 @@ export const RETRIEVAL_MODES = Object.freeze({
   ASK: "ask",
   INGEST: "ingest",
 })
+export const ASK_SEARCH_PRESETS = Object.freeze({
+  quick: Object.freeze({
+    sources: "wiki,raw,graph",
+    topWiki: 12,
+    topRaw: 12,
+    graphNeighbors: 8,
+    graphDepth: "auto",
+    sourceK: 3,
+    rawScanLimit: 320,
+  }),
+  deep: Object.freeze({
+    sources: "wiki,raw,graph,facts,brain",
+    topWiki: 18,
+    topRaw: 24,
+    graphNeighbors: 12,
+    graphDepth: "auto",
+    topFacts: 12,
+    topBrain: 12,
+    sourceK: 5,
+    rawScanLimit: 1200,
+  }),
+  validate: Object.freeze({
+    sources: "wiki,raw,graph,facts,brain,stock-price",
+    topWiki: 20,
+    topRaw: 30,
+    graphNeighbors: 12,
+    graphDepth: "auto",
+    topFacts: 16,
+    topBrain: 12,
+    sourceK: 6,
+    sqlLimit: 300,
+    rawScanLimit: 1600,
+    includeInvalidated: true,
+  }),
+  industry: Object.freeze({
+    sources: "wiki,raw,graph,facts",
+    topWiki: 18,
+    topRaw: 30,
+    graphNeighbors: 16,
+    graphDepth: "2",
+    topFacts: 12,
+    sourceK: 4,
+    rawScanLimit: 1600,
+  }),
+})
+const ASK_SEARCH_PRESET_NAMES = Object.keys(ASK_SEARCH_PRESETS)
+const ASK_SEARCH_VALIDATE_HINTS = [
+  "验证",
+  "证伪",
+  "失效",
+  "过期",
+  "有效性",
+  "旧计划",
+  "前一交易日",
+  "下一交易日",
+  "codex计划",
+  "交易计划",
+  "review-queue",
+  "pending",
+  "invalidated",
+  "expired",
+  "validate",
+  "falsify",
+]
+const ASK_SEARCH_INDUSTRY_HINTS = [
+  "产业",
+  "产业链",
+  "题材",
+  "上游",
+  "下游",
+  "扩散",
+  "催化",
+  "供应链",
+  "分支",
+  "行业",
+  "主题",
+  "链条",
+]
+const ASK_SEARCH_QUICK_HINTS = ["页面", "在哪", "在哪里", "找", "查", "股票", "概念"]
+const ASK_SEARCH_SOURCE_ALIASES = new Map(
+  Object.entries({
+    wiki: "wiki",
+    wiki_pages: "wiki",
+    raw: "raw",
+    raw_text: "raw",
+    graph: "graph",
+    wiki_graph: "graph",
+    facts: "facts",
+    facts_jsonl: "facts",
+    brain: "brain",
+    brain_memory: "brain",
+    stock: "stock-price",
+    sql: "stock-price",
+    "stock-price": "stock-price",
+    stock_daily_sql: "stock-price",
+  }),
+)
 const ASK_SOURCE_ALIASES = new Map(
   Object.entries({
     auto: "auto",
@@ -7548,6 +7645,485 @@ export async function buildAskRetrievalContext(options = {}) {
     marketValidation,
   }
   return { ...context, prompt: buildAskPrompt(context) }
+}
+
+export function routeAskSearchPreset(query) {
+  const text = String(query ?? "").trim().toLowerCase()
+  if (ASK_SEARCH_VALIDATE_HINTS.some((hint) => text.includes(hint.toLowerCase()))) {
+    return { preset: "validate", reason: "validation/current-status keywords" }
+  }
+  if (ASK_SEARCH_INDUSTRY_HINTS.some((hint) => text.includes(hint.toLowerCase()))) {
+    return { preset: "industry", reason: "industry/theme-spread keywords" }
+  }
+  const compact = text.replace(/\s+/g, "")
+  if (compact.length <= 18 || ASK_SEARCH_QUICK_HINTS.some((hint) => text.includes(hint.toLowerCase()))) {
+    return { preset: "quick", reason: "short entity/page lookup" }
+  }
+  return { preset: "deep", reason: "default complex-review route" }
+}
+
+function normalizeAskSearchPresetName(value, query) {
+  const raw = String(value ?? "auto").trim()
+  if (!raw || raw === "auto") return routeAskSearchPreset(query)
+  if (!ASK_SEARCH_PRESET_NAMES.includes(raw)) throw new Error(`Unknown search preset: ${raw}`)
+  return { preset: raw, reason: "explicit preset" }
+}
+
+function resolveAskSearchOptions(options = {}) {
+  const query = String(options.query ?? "").trim()
+  if (!query) throw new Error("Missing search query")
+  const routed = normalizeAskSearchPresetName(options.preset, query)
+  const preset = ASK_SEARCH_PRESETS[routed.preset]
+  const resolved = {
+    ...options,
+    ...preset,
+    query,
+    projectPath: options.projectPath,
+    preset: routed.preset,
+    sources: options.sources && String(options.sources).trim() && String(options.sources).trim() !== "auto"
+      ? options.sources
+      : preset.sources,
+    topWiki: options.topWiki ?? preset.topWiki,
+    topRaw: options.topRaw ?? preset.topRaw,
+    graphNeighbors: options.graphNeighbors ?? preset.graphNeighbors,
+    graphDepth: options.graphDepth ?? preset.graphDepth,
+    topFacts: options.topFacts ?? preset.topFacts,
+    topBrain: options.topBrain ?? preset.topBrain,
+    sourceK: options.sourceK ?? preset.sourceK,
+    sqlLimit: options.sqlLimit ?? preset.sqlLimit,
+    rawScanLimit: options.rawScanLimit ?? preset.rawScanLimit,
+    maxRawBytes: options.maxRawBytes ?? preset.maxRawBytes,
+    includeInvalidated: Boolean(options.includeInvalidated ?? preset.includeInvalidated),
+  }
+  return { presetName: routed.preset, routeReason: routed.reason, options: resolved }
+}
+
+function compactAskEvidenceItem(item, maxChars = 520) {
+  return {
+    ref: item.ref,
+    path: item.path,
+    title: item.title,
+    score: item.score,
+    type: item.type,
+    sourceId: item.sourceId,
+    nativeQuery: item.nativeQuery,
+    hop: item.hop,
+    pathTrace: item.pathTrace,
+    reasons: item.reasons,
+    temporalStatus: item.temporalStatus,
+    statusReason: item.statusReason,
+    frontmatterUpdated: item.frontmatterUpdated,
+    staleDays: item.staleDays,
+    freshnessScore: item.freshnessScore,
+    snippet: String(item.excerpt || item.snippet || "").slice(0, maxChars),
+  }
+}
+
+export function compactAskRetrievalContext(context, options = {}) {
+  const maxChars = parsePositiveInteger(options.maxSnippetChars, 520)
+  return {
+    query: context.query,
+    projectPath: context.projectPath,
+    generatedAt: context.generatedAt,
+    retrievalMode: context.retrievalMode,
+    tokens: context.tokens,
+    counts: context.counts,
+    sourceRouting: {
+      mode: context.sourceRouting.route.mode,
+      sourceK: context.sourceRouting.route.sourceK,
+      selectedSources: context.sourceRouting.selectedSources.map(({ id, label, kind, nativeLanguage, available, ruleScore, routeReason, unavailableReason }) => ({
+        id,
+        label,
+        kind,
+        nativeLanguage,
+        available,
+        ruleScore,
+        routeReason,
+        unavailableReason,
+      })),
+      warnings: context.sourceRouting.route.warnings,
+    },
+    nativeQueries: context.nativeQueries,
+    retrievalWarnings: context.retrievalWarnings,
+    marketValidation: context.marketValidation,
+    stockDaily: {
+      status: context.stockDaily.status,
+      intent: context.stockDaily.intent,
+      warning: context.stockDaily.warning,
+    },
+    results: {
+      navigation: context.navigation.map((item) => compactAskEvidenceItem(item, maxChars)),
+      wiki: context.wikiResults.map((item) => compactAskEvidenceItem(item, maxChars)),
+      raw: context.rawResults.map((item) => compactAskEvidenceItem(item, maxChars)),
+      graph: context.graphExpansions.map((item) => compactAskEvidenceItem(item, maxChars)),
+      facts: context.factsResults.map((item) => compactAskEvidenceItem(item, maxChars)),
+      invalidatedFacts: context.invalidatedFactsResults.map((item) => compactAskEvidenceItem(item, maxChars)),
+      brain: context.brainResults.map((item) => compactAskEvidenceItem(item, maxChars)),
+      stockDaily: context.stockDailyResults.map((item) => compactAskEvidenceItem(item, maxChars)),
+    },
+  }
+}
+
+export async function runAskSearch(options = {}) {
+  const resolved = resolveAskSearchOptions(options)
+  const context = await buildAskRetrievalContext({
+    ...resolved.options,
+    provider: options.provider ?? "codex",
+  })
+  return {
+    backend: "search",
+    tier: "tier1",
+    preset: resolved.presetName,
+    routeReason: resolved.routeReason,
+    modelCalls: {
+      planner: false,
+      sourceRouter: false,
+      reranker: false,
+      answer: false,
+    },
+    ...compactAskRetrievalContext(context, options),
+  }
+}
+
+function normalizeAskSearchSources(value, fallback) {
+  const rawItems = Array.isArray(value)
+    ? value
+    : String(value ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+  const out = []
+  for (const item of rawItems) {
+    const mapped = ASK_SEARCH_SOURCE_ALIASES.get(String(item).trim()) ?? null
+    if (mapped && !out.includes(mapped)) out.push(mapped)
+  }
+  return out.length > 0 ? out.join(",") : fallback
+}
+
+function normalizeSmartSearchPlan(rawPlan, fallbackQuery, fallbackSources) {
+  const plan = rawPlan && typeof rawPlan === "object" ? { ...rawPlan } : {}
+  const queries = Array.isArray(plan.queries) ? plan.queries : []
+  const normalizedQueries = queries
+    .slice(0, 4)
+    .map((item) => {
+      if (typeof item === "string") return { query: item.trim(), reason: "LLM query expansion" }
+      return {
+        query: String(item?.query ?? "").trim(),
+        reason: String(item?.reason ?? "LLM query expansion").trim(),
+      }
+    })
+    .filter((item) => item.query)
+  if (normalizedQueries.length === 0) normalizedQueries.push({ query: fallbackQuery, reason: "fallback original query" })
+  return {
+    intent: String(plan.intent ?? "deep"),
+    sources: normalizeAskSearchSources(plan.sources, fallbackSources),
+    queries: normalizedQueries,
+    expandedTerms: Array.isArray(plan.expanded_terms) ? plan.expanded_terms.map(String).filter(Boolean).slice(0, 24) : [],
+    includeInvalidated: Boolean(plan.include_invalidated),
+    rankingRules: Array.isArray(plan.ranking_rules) ? plan.ranking_rules.map(String).filter(Boolean).slice(0, 8) : [],
+    evidenceGapsToWatch: Array.isArray(plan.evidence_gaps_to_watch) ? plan.evidence_gaps_to_watch.map(String).filter(Boolean).slice(0, 8) : [],
+  }
+}
+
+function buildSmartSearchPlanPrompt({ query, presetName, preset }) {
+  return [
+    "# Trading Review Wiki Smart Retrieval Plan",
+    "",
+    `question: ${query}`,
+    `default_preset: ${presetName}`,
+    `default_sources: ${preset.sources}`,
+    "",
+    "Knowledge-base logic:",
+    "- raw/ is immutable evidence, not conclusion.",
+    "- wiki/ is durable human-readable conclusion, but can be stale.",
+    "- data/facts/ is temporal status: active, validated, invalidated, superseded, expired.",
+    "- data/brain/ is operational memory and guardrail, not trade fact evidence.",
+    "- industry research must be translated through tape/fund validation and L1-L4 before trading permission.",
+    "",
+    "Return JSON only with this schema:",
+    "```json",
+    JSON.stringify({
+      intent: "quick|deep|validate|industry|trade-error|audit",
+      sources: ["wiki", "raw", "graph", "facts", "brain", "stock-price"],
+      queries: [{ query: "...", reason: "..." }],
+      expanded_terms: ["..."],
+      include_invalidated: false,
+      ranking_rules: ["..."],
+      evidence_gaps_to_watch: ["..."],
+    }, null, 2),
+    "```",
+    "",
+    "Rules:",
+    "- Create 1 to 4 search queries, not final answers.",
+    "- For validation/current-status questions include facts and brain; include invalidated facts when useful.",
+    "- For industry-chain questions include wiki/raw/graph/facts.",
+    "- For trade mistakes/execution include wiki/raw/graph/facts/brain.",
+    "- Do not invent evidence paths.",
+  ].join("\n")
+}
+
+async function requestAskSearchJson({ stage, prompt, instructions, options, projectPath }) {
+  if (options.requestSmartSearchText) {
+    return parseJsonObjectFromModelText(await options.requestSmartSearchText({ stage, prompt, instructions }))
+  }
+  const provider = options.provider ?? "codex"
+  let text
+  if (provider === "codex") {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "trading-wiki-smart-search-"))
+    const outputPath = path.join(tmpDir, `${stage}.json`)
+    try {
+      text = await requestCodexExecText({
+        stage,
+        prompt,
+        instructions,
+        model: options.model,
+        prepared: { projectPath },
+        outputPath,
+        codexBin: options.codexBin,
+        codexProfile: options.codexProfile,
+        codexProfileV2: options.codexProfileV2,
+        codexTimeoutMs: options.codexTimeoutMs,
+      })
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+    }
+  } else if (provider === "openai") {
+    const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY
+    const model = options.model ?? process.env.OPENAI_MODEL
+    if (!apiKey) throw new Error("Missing OpenAI API key. Pass --api-key or set OPENAI_API_KEY, or use --provider codex.")
+    if (!model) throw new Error("Missing model. Pass --model or set OPENAI_MODEL.")
+    text = await requestResponsesText({
+      apiKey,
+      endpoint: options.endpoint,
+      model,
+      prompt,
+      instructions,
+      reasoningEffort: options.reasoningEffort ?? "low",
+    })
+  } else {
+    throw new Error(`Unsupported smart-search provider: ${provider}`)
+  }
+  return parseJsonObjectFromModelText(text)
+}
+
+function mergeAskSearchBucket(searches, bucket, limit = 40) {
+  const best = new Map()
+  for (const search of searches) {
+    for (const item of search.results?.[bucket] ?? []) {
+      const key = item.path || `${bucket}:${item.title}:${item.ref}`
+      const previous = best.get(key)
+      if (!previous || Number(item.score ?? 0) > Number(previous.score ?? 0)) {
+        best.set(key, item)
+      }
+    }
+  }
+  return [...best.values()].sort((a, b) => Number(b.score ?? 0) - Number(a.score ?? 0) || String(a.path ?? "").localeCompare(String(b.path ?? ""))).slice(0, limit)
+}
+
+function flattenSmartSearchEvidence(payload, limit = 80) {
+  const out = []
+  for (const [bucket, items] of Object.entries(payload.results ?? {})) {
+    for (const [index, item] of items.entries()) {
+      out.push({
+        id: `${bucket}:${index + 1}`,
+        bucket,
+        path: item.path,
+        title: item.title,
+        score: item.score,
+        snippet: item.snippet,
+      })
+      if (out.length >= limit) return out
+    }
+  }
+  return out
+}
+
+function mergeAskSearchPayloads({ query, projectPath, presetName, routeReason, plan, searches }) {
+  const results = {
+    navigation: mergeAskSearchBucket(searches, "navigation"),
+    wiki: mergeAskSearchBucket(searches, "wiki"),
+    raw: mergeAskSearchBucket(searches, "raw"),
+    graph: mergeAskSearchBucket(searches, "graph"),
+    facts: mergeAskSearchBucket(searches, "facts"),
+    invalidatedFacts: mergeAskSearchBucket(searches, "invalidatedFacts"),
+    brain: mergeAskSearchBucket(searches, "brain"),
+    stockDaily: mergeAskSearchBucket(searches, "stockDaily"),
+  }
+  const counts = {
+    wikiMatches: results.wiki.length,
+    rawMatches: results.raw.length,
+    graphMatches: results.graph.length,
+    factsMatches: results.facts.length,
+    invalidatedFactsMatches: results.invalidatedFacts.length,
+    brainMatches: results.brain.length,
+    sqlRows: results.stockDaily.length,
+  }
+  return {
+    backend: "smart-search",
+    tier: "tier2",
+    preset: presetName,
+    routeReason,
+    query,
+    projectPath,
+    generatedAt: nowLocalTimestamp(),
+    modelCalls: {
+      planner: true,
+      sourceRouter: false,
+      reranker: false,
+      answer: false,
+    },
+    plan,
+    counts,
+    searches: searches.map((item) => ({
+      query: item.query,
+      preset: item.preset,
+      counts: item.counts,
+      sourceRouting: item.sourceRouting,
+    })),
+    results,
+    rankedEvidence: [],
+    evidenceGaps: plan.evidenceGapsToWatch,
+    warnings: [],
+  }
+}
+
+function buildSmartSearchRerankPrompt(payload) {
+  return [
+    "# Trading Review Wiki Evidence Rerank",
+    "",
+    `question: ${payload.query}`,
+    "",
+    "Retrieval plan:",
+    "```json",
+    JSON.stringify(payload.plan, null, 2),
+    "```",
+    "",
+    "Evidence candidates:",
+    "```json",
+    JSON.stringify(flattenSmartSearchEvidence(payload), null, 2),
+    "```",
+    "",
+    "Return JSON only:",
+    "```json",
+    JSON.stringify({
+      ranked_ids: [{ id: "wiki:1", why: "..." }],
+      evidence_gaps: ["..."],
+      warnings: ["..."],
+    }, null, 2),
+    "```",
+    "",
+    "Rules:",
+    "- Rank evidence, do not answer the trading question.",
+    "- Prefer formal wiki for durable conclusions, raw for recent proof, facts for current status, brain for guardrails.",
+    "- Mark stale/invalidated/insufficient evidence as warnings or gaps.",
+  ].join("\n")
+}
+
+export async function runAskSmartSearch(options = {}) {
+  const resolved = resolveAskSearchOptions(options)
+  const projectPath = normalizePath(options.projectPath ?? DEFAULT_PROJECT_PATH)
+  let planRaw
+  try {
+    planRaw = await requestAskSearchJson({
+      stage: "smart-search-plan",
+      projectPath,
+      options,
+      instructions: "You are a retrieval planner for a local trading review knowledge base. Return only JSON.",
+      prompt: buildSmartSearchPlanPrompt({
+        query: resolved.options.query,
+        presetName: resolved.presetName,
+        preset: ASK_SEARCH_PRESETS[resolved.presetName],
+      }),
+    })
+  } catch (err) {
+    if (options.fallback === false) throw err
+    const fallback = await runAskSearch({
+      ...resolved.options,
+      ...options,
+      query: resolved.options.query,
+      preset: resolved.presetName,
+      projectPath,
+    })
+    return {
+      ...fallback,
+      backend: "smart-search-fallback",
+      fallback: {
+        stage: "smart-search-plan",
+        reason: err instanceof Error ? err.message : String(err),
+      },
+      modelCalls: {
+        planner: true,
+        sourceRouter: false,
+        reranker: false,
+        answer: false,
+      },
+      warnings: [
+        `smart-search planner failed; fell back to tier-1 search: ${err instanceof Error ? err.message : String(err)}`,
+        ...(fallback.warnings ?? []),
+      ],
+    }
+  }
+  const plan = normalizeSmartSearchPlan(planRaw, resolved.options.query, resolved.options.sources)
+  const searches = []
+  for (const item of plan.queries) {
+    searches.push(await runAskSearch({
+      ...resolved.options,
+      ...options,
+      query: item.query,
+      preset: resolved.presetName,
+      projectPath,
+      sources: plan.sources,
+      includeInvalidated: Boolean(options.includeInvalidated || plan.includeInvalidated),
+    }))
+  }
+  const payload = mergeAskSearchPayloads({
+    query: resolved.options.query,
+    projectPath,
+    presetName: resolved.presetName,
+    routeReason: resolved.routeReason,
+    plan,
+    searches,
+  })
+  if (options.llmRerank === false) return payload
+
+  let rerankRaw
+  try {
+    rerankRaw = await requestAskSearchJson({
+      stage: "smart-search-rerank",
+      projectPath,
+      options,
+      instructions: "You are an evidence reranker for a local trading review knowledge base. Return only JSON.",
+      prompt: buildSmartSearchRerankPrompt(payload),
+    })
+  } catch (err) {
+    if (options.fallback === false) throw err
+    return {
+      ...payload,
+      modelCalls: { ...payload.modelCalls, reranker: true },
+      fallback: {
+        stage: "smart-search-rerank",
+        reason: err instanceof Error ? err.message : String(err),
+      },
+      warnings: [
+        `smart-search rerank failed; returned merged local retrieval: ${err instanceof Error ? err.message : String(err)}`,
+      ],
+    }
+  }
+  const candidatesById = new Map(flattenSmartSearchEvidence(payload).map((item) => [item.id, item]))
+  const rankedEvidence = []
+  for (const item of Array.isArray(rerankRaw.ranked_ids) ? rerankRaw.ranked_ids : []) {
+    const id = typeof item === "string" ? item : String(item?.id ?? "")
+    const evidence = candidatesById.get(id)
+    if (evidence) rankedEvidence.push({ ...evidence, why: typeof item === "string" ? "" : String(item?.why ?? "") })
+    if (rankedEvidence.length >= parsePositiveInteger(options.topRanked, 12)) break
+  }
+  return {
+    ...payload,
+    modelCalls: { ...payload.modelCalls, reranker: true },
+    rankedEvidence,
+    evidenceGaps: Array.isArray(rerankRaw.evidence_gaps) ? rerankRaw.evidence_gaps.map(String) : payload.evidenceGaps,
+    warnings: Array.isArray(rerankRaw.warnings) ? rerankRaw.warnings.map(String) : [],
+  }
 }
 
 export async function askWiki(options = {}) {

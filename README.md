@@ -7,7 +7,7 @@
 
 这个仓库现在的主定位不是单纯桌面应用，而是围绕 live 知识库运行的一套自动化 CLI：
 
-- 多源 RAG 问答：`wiki / raw / graph / facts / brain / stock_daily_sql`
+- 三档多源检索问答：`search / smart-search / ask`，覆盖 `wiki / raw / graph / facts / brain / stock_daily_sql`
 - App-grade 知识摄入：`api-run -> finalize -> apply --write`
 - 盘前预测与盘后验证：`daily-loop`
 - 公司深度研究底稿：`company-research --deep`
@@ -37,7 +37,7 @@ The current `main` branch is optimized for CLI automation and agent-assisted wik
 
 - [CLI 外部接入与使用指南](docs/CLI外部接入与使用指南.md)：给 OpenClaw、龙虾、Shell/Python/Node 调度器和其它非 Codex 软件看的完整接入说明，包含从 0 新建 wiki 化知识库和接入已有 wiki 化知识库两条路径。
 - [交易复盘 Schema 参考模板](docs/交易复盘Schema参考模板.md)：从真实交易复盘 wiki 抽象出的 `schema.md` 示例，适合从 0 建库、改造已有 wiki 或给外部 Agent 定义写入边界。
-- [多源检索 RAG 完整流程](docs/多源检索RAG完整流程.md)：解释 `ask` 如何融合 wiki/raw/graph/facts/brain/SQL。
+- [多源检索 RAG 完整流程](docs/多源检索RAG完整流程.md)：解释 `search / smart-search / ask` 如何融合 wiki/raw/graph/facts/brain/SQL。
 - [Temporal Facts v1](docs/temporal-facts-v1.md)：解释时序事实账本、predicate、状态和人工审计流程。
 
 ## Directory Boundaries
@@ -79,7 +79,27 @@ npm test -- --run
 
 ## 常用命令
 
-### 多源问答
+### 三档检索
+
+不需要最终答案，只想看人能读的证据列表：
+
+```sh
+npm run codex:ingest -- search \
+  --query "AI服务器电源 最近一周" \
+  --project /path/to/your/trading-review-wiki-project \
+  --preset auto
+```
+
+复杂问题先让模型做检索规划和证据重排，但仍不生成最终结论：
+
+```sh
+npm run codex:ingest -- smart-search \
+  --query "AI服务器PCB 上游材料扩散到哪些分支？哪些证据还只是叙事？" \
+  --project /path/to/your/trading-review-wiki-project \
+  --provider codex
+```
+
+需要面向人的完整回答时，再用 `ask`：
 
 ```sh
 npm run codex:ingest -- ask \
@@ -89,6 +109,16 @@ npm run codex:ingest -- ask \
   --show-context \
   --show-sources
 ```
+
+三档区别：
+
+| 命令 | 模型介入 | 输出 | 适合场景 |
+|---|---|---|---|
+| `search` | 不调用模型 | 人可读证据列表或 JSON | 快速查页面、查原文、调试召回 |
+| `smart-search` | 只做检索计划和证据重排，失败时默认退回本地检索 | 证据排序、子查询、缺口 | 复杂问题、产业链扩散、旧结论验证 |
+| `ask` | 检索后生成最终回答 | 带引用的六段式回答 | 用户需要直接看结论和交易含义 |
+
+`--preset auto` 会按问题形状选择 `quick / deep / validate / industry`；也可以显式指定。`smart-search --no-llm-rerank` 会保留模型规划，但跳过证据重排；`--no-fallback` 会在模型规划或重排失败时直接报错。
 
 常用 source：
 
@@ -339,7 +369,9 @@ flowchart TD
 7. `expandAskGraph()` 从 top wiki hits 做有界图谱扩展：默认一跳；产业链/上下游/受益方向类问题自动二跳，也可手动 `--graph-depth 2`。
 8. `facts_jsonl` 和 `brain_memory` 用 JSONL native token filter。
 9. `stock_daily_sql` 用只读 PostgreSQL 查询日线，并生成 Market Validation。
-10. `buildAskPrompt()` 把所有证据编号为 `W/R/G/F/M/S`，要求答案逐条引用。
+10. `search` 到此为止，输出证据列表，不生成结论。
+11. `smart-search` 在本地多源召回前后只让模型做规划和重排，不生成最终回答。
+12. `ask` 调用 `buildAskPrompt()` 把所有证据编号为 `W/R/G/F/M/S`，要求答案逐条引用。
 
 固定回答章节：
 

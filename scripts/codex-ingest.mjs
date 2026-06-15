@@ -13,6 +13,8 @@ import {
   rememberBrainMemory,
   resolveBrainMemory,
   runAskEval,
+  runAskSearch,
+  runAskSmartSearch,
   runCompanyResearch,
   runDailyLoop,
   runHygiene,
@@ -27,6 +29,8 @@ function printHelp() {
   npm run codex:ingest -- api-run --provider codex --source <raw-file> [--project <wiki-root>] [--model <model>] [--page-concurrency <n>] [--max-plan-items <n>]
   npm run codex:ingest -- finalize --report <codex-ingest-report-dir> [--provider codex]
   npm run codex:ingest -- apply --manifest <changes.json> [--project <wiki-root>] [--write]
+  npm run codex:ingest -- search --query "..." [--project <wiki-root>] [--preset auto|quick|deep|validate|industry] [--output text|json]
+  npm run codex:ingest -- smart-search --query "..." [--project <wiki-root>] [--preset auto|quick|deep|validate|industry] [--no-llm-rerank] [--no-fallback] [--output text|json]
   npm run codex:ingest -- ask --query "..." [--project <wiki-root>] [--provider codex] [--show-context] [--show-sources] [--include-invalidated]
   npm run codex:ingest -- ask eval [--query "..."] [--expect-paths wiki/概念/xxx.md,raw/研报新闻/xxx.md] [--project <wiki-root>] [--write]
   npm run codex:ingest -- brain remember --type correction|thread|preference|guardrail --text "..." [--project <wiki-root>]
@@ -50,9 +54,10 @@ Notes:
   --provider codex uses the local Codex CLI login instead of OPENAI_API_KEY.
   --page-concurrency controls parallel FILE-block generation; defaults to 1.
   --max-plan-items, --max-create-pages, and --max-update-pages record soft plan-budget warnings in plan-budget.json; they do not stop normal ingest.
+  retrieval tiers: search is local multi-source evidence retrieval; smart-search uses the LLM only for retrieval planning/evidence reranking and falls back to local search unless --no-fallback is set; ask generates a final cited answer.
   ask is read-only. Use --show-context to print retrieval hits; use --show-sources to print source routing/native query summaries.
   ask eval is read-only by default and reports retrieval recall/relevance/source coverage/raw-noise/structure scores; --write stores only .llm-wiki/eval/*.json.
-  ask source controls: --source-k 3 --sources auto|wiki,raw,graph,facts,brain,stock-price --graph-depth auto|1|2 --top-brain 8 --sql-limit 200 --include-invalidated.
+  ask source controls: --source-k 3 --sources auto|wiki,raw,graph,facts,brain,stock-price --graph-depth auto|1|2 --top-brain 8 --sql-limit 200 --raw-scan-limit 320 --max-raw-bytes <n> --include-invalidated.
   daily-loop controls: --question-count <n> --lookback-days 30 --max-stocks-per-question 8 --max-existing-validations <n> --validation-windows 1,3,5,10,20 --market-validate auto|off|tencent|eastmoney --validate-pending-only.
   daily-loop questions are planned by the provider LLM first; rules/templates are only fallback.
   brain/market/self-train commands write only data/brain or .llm-wiki/exports when explicitly invoked; ask remains read-only.
@@ -74,7 +79,7 @@ function parseArgs(argv) {
       continue
     }
     const key = token.slice(2)
-    if (["write", "no-report", "allow-source-change", "help", "show-context", "show-sources", "include-invalidated", "validate-pending-only", "deep"].includes(key)) {
+    if (["write", "no-report", "allow-source-change", "help", "show-context", "show-sources", "include-invalidated", "validate-pending-only", "deep", "no-llm-rerank", "no-fallback"].includes(key)) {
       args[key] = true
       continue
     }
@@ -91,6 +96,114 @@ function parseArgs(argv) {
 function requireArg(args, name) {
   if (!args[name]) throw new Error(`Missing required --${name}`)
   return args[name]
+}
+
+function oneLine(value, limit = 220) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim()
+  return text.length <= limit ? text : `${text.slice(0, limit - 1).trimEnd()}...`
+}
+
+function renderHits(items, title, limit = 5) {
+  if (!items?.length) return []
+  const lines = ["", title]
+  for (const [index, item] of items.slice(0, limit).entries()) {
+    const score = Number.isFinite(Number(item.score)) ? ` | score ${Math.round(Number(item.score) * 1000) / 1000}` : ""
+    lines.push(`${index + 1}. ${item.title ?? item.path ?? item.id}${score}`)
+    if (item.path) lines.push(`   ${item.path}`)
+    if (item.snippet) lines.push(`   ${oneLine(item.snippet)}`)
+    if (item.why) lines.push(`   why: ${oneLine(item.why, 180)}`)
+    if (item.reasons?.length) lines.push(`   reason: ${oneLine(item.reasons.slice(0, 2).join("; "), 180)}`)
+  }
+  return lines
+}
+
+function renderAskSearchText(result) {
+  const calls = result.modelCalls ?? {}
+  const lines = [
+    `查询：${result.query}`,
+    `检索：${result.backend} / ${result.preset}`,
+    `模型：计划 ${calls.planner ? "是" : "否"}，路由 ${calls.sourceRouter ? "是" : "否"}，重排 ${calls.reranker ? "是" : "否"}，回答 ${calls.answer ? "是" : "否"}`,
+  ]
+  if (result.routeReason) lines.push(`路由原因：${result.routeReason}`)
+  if (result.plan) {
+    lines.push(`意图：${result.plan.intent}`)
+    lines.push(`来源：${result.plan.sources}`)
+    if (result.plan.queries?.length) {
+      lines.push("子查询：")
+      for (const item of result.plan.queries.slice(0, 5)) lines.push(`- ${item.query}（${oneLine(item.reason, 120)}）`)
+    }
+    if (result.plan.expandedTerms?.length) lines.push(`扩展词：${result.plan.expandedTerms.slice(0, 18).join(" / ")}`)
+    if (result.plan.rankingRules?.length) lines.push(`排序规则：${result.plan.rankingRules.slice(0, 4).map((item) => oneLine(item, 80)).join("；")}`)
+  }
+  const counts = result.counts ?? {}
+  lines.push(`命中：wiki ${counts.wikiMatches ?? 0}，raw ${counts.rawMatches ?? 0}，graph ${counts.graphMatches ?? 0}，facts ${counts.factsMatches ?? 0}，brain ${counts.brainMatches ?? 0}，SQL ${counts.sqlRows ?? 0}`)
+  if (result.sourceRouting?.selectedSources?.length) {
+    const usable = result.sourceRouting.selectedSources.filter((item) => item.available).map((item) => item.id)
+    if (usable.length) lines.push(`来源：${usable.join(" / ")}`)
+  }
+  if (result.rankedEvidence?.length) {
+    lines.push(...renderHits(result.rankedEvidence, "证据排序", 10))
+  } else {
+    const sections = [
+      ["wiki", "正式 wiki"],
+      ["raw", "原始证据"],
+      ["graph", "关联扩展"],
+      ["facts", "时序事实"],
+      ["invalidatedFacts", "失效事实"],
+      ["brain", "运行记忆"],
+      ["stockDaily", "行情数据"],
+      ["navigation", "导航"],
+    ]
+    for (const [key, title] of sections) lines.push(...renderHits(result.results?.[key] ?? [], title))
+  }
+  if (result.evidenceGaps?.length) {
+    lines.push("", "证据缺口")
+    for (const gap of result.evidenceGaps.slice(0, 8)) lines.push(`- ${oneLine(gap, 180)}`)
+  }
+  if (result.warnings?.length) {
+    lines.push("", "警告")
+    for (const warning of result.warnings.slice(0, 8)) lines.push(`- ${oneLine(warning, 180)}`)
+  }
+  if (result.fallback) {
+    lines.push("", `兜底：${result.fallback.stage} -> ${oneLine(result.fallback.reason, 180)}`)
+  }
+  lines.push("", result.tier === "tier2" ? "下一步：smart-search 只排序证据，不生成结论；需要正式回答时用 ask。" : "下一步：打开上面的路径阅读全文；检索片段只是线索，不等于正式结论。")
+  lines.push("需要机器格式时加：--output json")
+  return `${lines.join("\n").trimEnd()}\n`
+}
+
+function buildAskRetrievalArgs(args) {
+  return {
+    query: requireArg(args, "query"),
+    projectPath: args.project,
+    provider: args.provider ?? "codex",
+    model: args.model,
+    apiKey: args["api-key"],
+    endpoint: args.endpoint,
+    reasoningEffort: args["reasoning-effort"],
+    codexBin: args["codex-bin"],
+    codexProfile: args["codex-profile"],
+    codexProfileV2: args["codex-profile-v2"],
+    codexTimeoutMs: args["codex-timeout-ms"],
+    preset: args.preset,
+    topWiki: args["top-wiki"],
+    topRaw: args["top-raw"],
+    graphNeighbors: args["graph-neighbors"],
+    graphDepth: args["graph-depth"],
+    topFacts: args["top-facts"],
+    topBrain: args["top-brain"],
+    includeInvalidated: Boolean(args["include-invalidated"]),
+    sourceK: args["source-k"],
+    sources: args.sources,
+    sqlLimit: args["sql-limit"],
+    rawScanLimit: args["raw-scan-limit"],
+    maxRawBytes: args["max-raw-bytes"],
+  }
+}
+
+function printSearchResult(result, args) {
+  if (args.output === "json") console.log(JSON.stringify(result, null, 2))
+  else console.log(renderAskSearchText(result).trimEnd())
 }
 
 async function main() {
@@ -406,6 +519,23 @@ async function main() {
     return
   }
 
+  if (command === "search" || command === "retrieve") {
+    const result = await runAskSearch(buildAskRetrievalArgs(args))
+    printSearchResult(result, args)
+    return
+  }
+
+  if (command === "smart-search") {
+    const result = await runAskSmartSearch({
+      ...buildAskRetrievalArgs(args),
+      llmRerank: !args["no-llm-rerank"],
+      fallback: !args["no-fallback"],
+      topRanked: args["top-ranked"],
+    })
+    printSearchResult(result, args)
+    return
+  }
+
   if (command === "ask" || command === "query") {
     if (args._[1] === "eval") {
       const result = await runAskEval({
@@ -449,6 +579,8 @@ async function main() {
       sourceK: args["source-k"],
       sources: args.sources,
       sqlLimit: args["sql-limit"],
+      rawScanLimit: args["raw-scan-limit"],
+      maxRawBytes: args["max-raw-bytes"],
       showContext: Boolean(args["show-context"] || args["show-sources"]),
     })
     if (args["show-context"] || args["show-sources"]) {

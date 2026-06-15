@@ -7,7 +7,7 @@
 它是围绕本地 Trading Review Wiki 工作区运行的一组命令行能力：
 
 - 把 `raw/**` 原始资料变成可审阅、可回滚的 `wiki/**/*.md` 更新。
-- 对 `wiki / raw / graph / facts / brain / stock_daily_sql` 做多源检索问答。
+- 对 `wiki / raw / graph / facts / brain / stock_daily_sql` 做三档检索问答：`search`、`smart-search`、`ask`。
 - 用 `data/facts/temporal_edges.jsonl` 记录会变化、会失效、会被证伪的时序事实。
 - 用 `data/brain/*.jsonl` 记录纠错、预测、验证、偏好和 guardrail。
 - 生成公司深度研究、盘前问题、盘后验证、训练样本和检索质量评估。
@@ -15,7 +15,7 @@
 核心边界：
 
 - `raw/**` 是原始资料，CLI 不改写。
-- `ask` 永远只读。
+- `search / smart-search / ask` 永远只读。
 - 正式写入 wiki 只通过 `apply --write`。
 - 时序事实只写 `data/facts/temporal_edges.jsonl`。
 - 股票 SQL 只从本机私有配置读取，公开仓库不保存连接信息或密码。
@@ -144,14 +144,40 @@ npm run codex:ingest -- apply \
 建议先做只读接入：
 
 ```sh
+npm run codex:ingest -- search \
+  --query "这个知识库目前有哪些核心主题？" \
+  --project /path/to/existing-wiki \
+  --preset auto
+```
+
+如果需要复杂问题的检索规划和证据重排，但不想让模型直接写结论：
+
+```sh
+npm run codex:ingest -- smart-search \
+  --query "这个知识库里哪些旧计划后来被验证或证伪？" \
+  --project /path/to/existing-wiki \
+  --provider codex \
+  --preset validate
+```
+
+如果需要最终回答，再用：
+
+```sh
 npm run codex:ingest -- ask \
   --query "这个知识库目前有哪些核心主题？" \
   --project /path/to/existing-wiki \
-  --sources wiki,raw,graph \
-  --show-sources
+  --provider codex
 ```
 
-如果能看到 `wikiResults`、`rawResults` 或 `graphExpansions`，说明基本接入成功。
+如果 `search` 能输出 `正式 wiki`、`原始证据` 或 `关联扩展`，说明基本接入成功。要看完整机器上下文时，对 `ask` 加 `--show-context`。
+
+三档区别：
+
+| 命令 | 模型介入 | 输出 | 适合调用方 |
+|---|---|---|---|
+| `search` | 不调用模型 | 证据列表或 JSON | Shell/Python/Node 调度器、快速检索、自动化前置召回 |
+| `smart-search` | 只做检索规划和证据重排，失败时默认退回本地检索 | 子查询、证据排序、缺口 | 复杂问题、主题扩散、验证旧判断 |
+| `ask` | 检索后生成最终回答 | 带引用回答 | 面向用户的问答界面 |
 
 已有库接入前检查：
 
@@ -352,9 +378,28 @@ npm run codex:ingest -- daily-loop \
 
 ## 5. 命令怎么选
 
-### 4.1 只问问题
+### 5.1 只问问题
 
-面向人类阅读：
+只要证据，不要模型写结论：
+
+```sh
+npm run codex:ingest -- search \
+  --query "最近机器人主线是订单兑现还是情绪扩散？" \
+  --project /path/to/wiki-project \
+  --preset auto
+```
+
+复杂问题，需要模型先规划怎么检索、再重排证据：
+
+```sh
+npm run codex:ingest -- smart-search \
+  --query "最近机器人主线是订单兑现还是情绪扩散？哪些证据已经被验证？" \
+  --project /path/to/wiki-project \
+  --provider codex \
+  --preset deep
+```
+
+需要面向人类的完整回答：
 
 ```sh
 npm run codex:ingest -- ask \
@@ -363,17 +408,13 @@ npm run codex:ingest -- ask \
   --provider codex
 ```
 
-面向机器读取检索上下文：
+面向机器解析时，对 `search` 或 `smart-search` 加：
 
 ```sh
-npm run codex:ingest -- ask \
-  --query "最近机器人主线是订单兑现还是情绪扩散？" \
-  --project /path/to/wiki-project \
-  --sources wiki,raw,graph,facts,brain,stock-price \
-  --show-sources
+--output json
 ```
 
-`--show-sources` 输出 JSON，适合外部软件解析：
+如果要调试 `ask` 的源路由，再用 `--show-sources`。它输出 JSON，适合外部软件解析：
 
 - `sourceRouting.selectedSources`
 - `nativeQueries`
@@ -391,7 +432,7 @@ npm run codex:ingest -- ask \
 - `stockDailyResults`
 - `marketValidation`
 
-### 4.2 摄入一份新资料
+### 5.2 摄入一份新资料
 
 推荐流程：
 
@@ -433,7 +474,7 @@ npm run codex:ingest -- apply \
   --write
 ```
 
-### 4.3 维护时序事实
+### 5.3 维护时序事实
 
 摄入 manifest 可以包含 `factWrites`。CLI 只允许写：
 
@@ -479,7 +520,7 @@ npm run codex:ingest -- temporal-facts audit \
 
 这些候选只是人工复核清单，不会自动改写 wiki。
 
-### 4.4 记录长期纠错和偏好
+### 5.4 记录长期纠错和偏好
 
 记录一条纠错：
 
@@ -509,7 +550,7 @@ npm run codex:ingest -- brain resolve \
 
 外部 Agent 可以把用户纠错、盘后复盘结论、失败案例都写入 brain，后续 `ask` 和 `daily-loop` 会把它作为约束和先验，但不会把 brain 当作市场事实本身。
 
-### 4.5 做公司深度研究
+### 5.5 做公司深度研究
 
 ```sh
 npm run codex:ingest -- company-research \
@@ -535,7 +576,7 @@ npm run codex:ingest -- company-research \
 
 它只生成底稿和候选页，不直接写正式 `wiki/**`。
 
-### 4.6 做行情验证
+### 5.6 做行情验证
 
 ```sh
 npm run codex:ingest -- market-validate \
@@ -553,7 +594,7 @@ data/brain/validations.jsonl
 
 如果 SQL 不可用，命令会报告证据不足，不编造行情。
 
-### 4.7 做检索质量评估
+### 5.7 做检索质量评估
 
 ```sh
 npm run codex:ingest -- ask eval \
@@ -570,7 +611,7 @@ npm run codex:ingest -- ask eval \
 
 适合外部软件做回归测试：更新检索策略后，看 recall、source coverage、raw noise 是否变坏。
 
-### 4.8 清理临时报告
+### 5.8 清理临时报告
 
 ```sh
 npm run codex:ingest -- hygiene audit \
