@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import {
-  FileText, FolderOpen, Search, Network, ClipboardCheck, Settings, ArrowLeftRight, ClipboardList, Globe, TrendingUp, PenLine, BarChart3, Target,
+  FileText, FolderOpen, Search, Network, ClipboardCheck, Settings, ArrowLeftRight, ClipboardList, Globe, TrendingUp, PenLine, BarChart3, Target, TreePine, MessageSquare,
 } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -115,6 +115,10 @@ export function IconSidebar({ onSwitchProject }: IconSidebarProps) {
   const activeView = useWikiStore((s) => s.activeView)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const pendingCount = useReviewStore((s) => s.items.filter((i) => !i.resolved).length)
+  const sidebarVisible = useWikiStore((s) => s.sidebarVisible)
+  const setSidebarVisible = useWikiStore((s) => s.setSidebarVisible)
+  const chatExpanded = useWikiStore((s) => s.chatExpanded)
+  const setChatExpanded = useWikiStore((s) => s.setChatExpanded)
   const researchPanelOpen = useResearchStore((s) => s.panelOpen)
   const researchActiveCount = useResearchStore((s) => s.tasks.filter((t) => t.status !== "done" && t.status !== "error").length)
   const toggleResearchPanel = useResearchStore((s) => s.setPanelOpen)
@@ -202,6 +206,38 @@ export function IconSidebar({ onSwitchProject }: IconSidebarProps) {
         </div>
         {/* Top: main nav items + Deep Research */}
         <div className="flex flex-1 flex-col items-center gap-1">
+          {/* Sidebar toggle (知识树/文件树) */}
+          <Tooltip>
+            <TooltipTrigger
+              onClick={() => setSidebarVisible(!sidebarVisible)}
+              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
+                sidebarVisible
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+              }`}
+            >
+              <TreePine className="h-5 w-5" />
+            </TooltipTrigger>
+            <TooltipContent side="right">{sidebarVisible ? "隐藏文件树" : "显示文件树"}</TooltipContent>
+          </Tooltip>
+
+          {/* Chat toggle (对话) */}
+          <Tooltip>
+            <TooltipTrigger
+              onClick={() => setChatExpanded(!chatExpanded)}
+              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
+                chatExpanded
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+              }`}
+            >
+              <MessageSquare className="h-5 w-5" />
+            </TooltipTrigger>
+            <TooltipContent side="right">{chatExpanded ? "隐藏对话" : "新建对话"}</TooltipContent>
+          </Tooltip>
+
+          <div className="my-1 h-px w-6 bg-border" />
+
           {/* Quick Review */}
           <Tooltip>
             <TooltipTrigger

@@ -39,6 +39,7 @@ interface WikiState {
   fileContent: string
   chatExpanded: boolean
   activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "review" | "dashboard" | "plan" | "settings"
+  sidebarVisible: boolean
   llmConfig: LlmConfig
   searchApiConfig: SearchApiConfig
   embeddingConfig: EmbeddingConfig
@@ -52,6 +53,7 @@ interface WikiState {
   setFileContent: (content: string) => void
   setChatExpanded: (expanded: boolean) => void
   setActiveView: (view: WikiState["activeView"]) => void
+  setSidebarVisible: (visible: boolean) => void
   setLlmConfig: (config: LlmConfig) => void
   setSearchApiConfig: (config: SearchApiConfig) => void
   setEmbeddingConfig: (config: EmbeddingConfig) => void
@@ -66,6 +68,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   selectedFile: null,
   fileContent: "",
   chatExpanded: false,
+  sidebarVisible: true,
   activeView: "wiki",
   llmConfig: {
     provider: "openai",
@@ -85,6 +88,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   setFileContent: (fileContent) => set({ fileContent }),
   setChatExpanded: (chatExpanded) => set({ chatExpanded }),
   setActiveView: (activeView) => set({ activeView }),
+  setSidebarVisible: (sidebarVisible) => set({ sidebarVisible }),
   searchApiConfig: {
     provider: "none",
     apiKey: "",

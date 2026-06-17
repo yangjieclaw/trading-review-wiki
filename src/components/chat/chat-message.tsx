@@ -158,6 +158,9 @@ function SaveToWikiButton({ content, visible }: { content: string; visible: bool
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [saveTitle, setSaveTitle] = useState("")
+  const [saveDir, setSaveDir] = useState("queries")
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Ingest 模式 = Stage 0（startIngest 在 chat 显示分析），按钮表示「执行写入」
@@ -169,6 +172,14 @@ function SaveToWikiButton({ content, visible }: { content: string; visible: bool
       if (timerRef.current) clearTimeout(timerRef.current)
     }
   }, [])
+
+  const openSaveDialog = useCallback(() => {
+    const firstLine = content.split("\n")[0].replace(/^#+\s*/, "").trim()
+    setSaveTitle(firstLine.slice(0, 60) || "")
+    setSaveDir("queries")
+    setErrorMsg(null)
+    setDialogOpen(true)
+  }, [content])
 
   const handleSave = useCallback(async () => {
     if (!project || saving) return
@@ -211,45 +222,24 @@ function SaveToWikiButton({ content, visible }: { content: string; visible: bool
       return
     }
 
+    const title = saveTitle
+    let subDir = saveDir
+    let fileTitle = title
+    if (title.includes("/")) {
+      const parts = title.split("/")
+      subDir = parts[0].trim()
+      fileTitle = parts.slice(1).join("/").trim()
+    }
+    const { validatePageTitle, makeSlug, validateSlug } = await import("@/lib/page-name-validator")
+    const titleCheck = validatePageTitle(title)
+    if (!titleCheck.ok) {
+      setErrorMsg(titleCheck.reason ?? "标题非法")
+      setSaving(false)
+      return
+    }
+
     // ── 分支 2: 普通模式（自由对话存档）──────────────────
     try {
-      // Parse frontmatter if present in content
-      const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n/)
-      let fmType = ""
-      let fmTitle = ""
-      if (fmMatch) {
-        const fm = fmMatch[1]
-        const typeMatch = fm.match(/^type:\s*(.+)$/m)
-        if (typeMatch) fmType = typeMatch[1].trim()
-        const titleMatch = fm.match(/^title:\s*(.+)$/m)
-        if (titleMatch) fmTitle = titleMatch[1].trim().replace(/^["']|["']$/g, "")
-      }
-
-      // Generate title: prefer frontmatter title, then first line heading, then fallback
-      const firstLine = content.split("\n")[0].replace(/^#+\s*/, "").trim()
-      const title = fmTitle || firstLine.slice(0, 60) || ""
-
-      // T27 sanity check: 写入前 hard-block 垃圾 title
-      const { validatePageTitle, makeSlug, validateSlug } = await import("@/lib/page-name-validator")
-      const titleCheck = validatePageTitle(title)
-      if (!titleCheck.ok) {
-        setErrorMsg(titleCheck.reason ?? "标题非法")
-        setSaving(false)
-        return
-      }
-
-      // Detect directory prefix from title like "预测/杰哥下周机会预测"
-      let subDir = "queries"
-      let fileTitle = title
-      if (title.includes("/")) {
-        const parts = title.split("/")
-        subDir = parts[0].trim()
-        fileTitle = parts.slice(1).join("/").trim()
-      } else if (fmType) {
-        // Use frontmatter type as directory (e.g., type: 预测 -> wiki/预测/)
-        subDir = fmType
-      }
-
       // T27: 新 slug 算法保留中文
       const slug = makeSlug(fileTitle)
       const slugCheck = validateSlug(slug)
@@ -360,16 +350,16 @@ function SaveToWikiButton({ content, visible }: { content: string; visible: bool
 
   const buttonLabel = isIngestMode
     ? (saved ? "已执行" : saving ? "执行中..." : "执行写入")
-    : (saved ? "Saved!" : saving ? "Saving..." : "Save to Wiki")
+    : (saved ? "已保存" : saving ? "保存中..." : "保存到 Wiki")
 
   return (
     <div className="flex flex-col items-start gap-1">
       <button
         type="button"
-        onClick={handleSave}
+        onClick={isIngestMode ? handleSave : openSaveDialog}
         disabled={saving}
         className="self-start inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-        title={isIngestMode ? "执行写入（4-stage autoIngest）" : "Save to wiki"}
+        title={isIngestMode ? "执行写入（4-stage autoIngest）" : "保存到 Wiki"}
       >
         <BookmarkPlus className="h-3 w-3" />
         {buttonLabel}
@@ -379,6 +369,64 @@ function SaveToWikiButton({ content, visible }: { content: string; visible: bool
           {errorMsg}
         </div>
       )}
+
+      {/* Save to Wiki dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>保存到 Wiki</DialogTitle>
+            <DialogDescription>输入标题并选择保存目录。</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="grid gap-2">
+              <label htmlFor="save-title" className="text-sm font-medium">标题</label>
+              <input
+                id="save-title"
+                value={saveTitle}
+                onChange={(e) => setSaveTitle(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+                placeholder="输入文件标题..."
+              />
+            </div>
+            <div className="grid gap-2">
+              <label htmlFor="save-dir" className="text-sm font-medium">保存目录</label>
+              <select
+                id="save-dir"
+                value={saveDir}
+                onChange={(e) => setSaveDir(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              >
+                <option value="queries">queries（查询）</option>
+                <option value="sources">sources（资料）</option>
+                <option value="策略">策略</option>
+                <option value="股票">股票</option>
+                <option value="模式">模式</option>
+                <option value="错误">错误</option>
+                <option value="市场环境">市场环境</option>
+                <option value="进化">进化</option>
+                <option value="预测">预测</option>
+                <option value="synthesis">synthesis（综合）</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDialogOpen(false)}
+              className="inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium hover:bg-accent"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => { setDialogOpen(false); handleSave(); }}
+              className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              保存
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
