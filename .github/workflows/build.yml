@@ -26,4 +26,6 @@ jobs:
         run: npm run build
 
       - name: Build Tauri app
+        env:
+          PROTOC: ${{ github.workspace }}\.protoc\bin\protoc.exe
         run: npx tauri build --bundles msi
