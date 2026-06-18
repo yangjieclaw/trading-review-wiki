@@ -1,7 +1,5 @@
-name: Build Windows
+﻿name: Build Windows
 on: [push, workflow_dispatch]
-permissions:
-  contents: write
 jobs:
   build:
     runs-on: windows-latest
@@ -11,15 +9,17 @@ jobs:
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
       - run: npm ci
       - run: npm run build
       - name: Build
         shell: bash
         run: |
           rm -f src-tauri/.cargo/config.toml
-          npx tauri build --bundles msi
-        env:
-          PROTOC: D:/a/trading-review-wiki/trading-review-wiki/.protoc/bin/protoc.exe
+          PROTOC=$(pwd)/.protoc/bin/protoc.exe npx tauri build --bundles msi
       - uses: actions/upload-artifact@v4
         with:
           name: trading-review-wiki-windows
