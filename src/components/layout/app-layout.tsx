@@ -85,21 +85,26 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
   )
 
   const hasRightPanel = !!(selectedFile || researchPanelOpen)
-  const chatPanelWidth = 400
-
+  
   return (
     <div className="flex h-screen bg-background text-foreground" data-theme={appTheme === "light" || appTheme === "default" ? undefined : appTheme}>
       <IconSidebar onSwitchProject={onSwitchProject} />
       <div ref={containerRef} className="flex min-w-0 flex-1 overflow-hidden">
-        {/* Left: File/Sidebar tree (toggleable) */}
-        {sidebarVisible && (
+        {/* Left panel: File tree + Chat (both toggleable) */}
+        {(sidebarVisible || chatExpanded) && (
         <div
           className="flex shrink-0 flex-col overflow-hidden border-r"
-          style={{ width: leftWidth }}
+          style={{ width: sidebarVisible ? leftWidth : 400 }}
         >
-          <div className="flex-1 overflow-hidden">
+          <div           <div className={chatExpanded ? "flex-1 overflow-hidden border-b" : "flex-1 overflow-hidden"}>
             <SidebarPanel />
           </div>
+          )}
+          {chatExpanded && (
+          <div className={sidebarVisible ? "flex-shrink-0 overflow-hidden" : "flex-1 overflow-hidden"}>
+            <ChatBar />
+          </div>
+          )}
         </div>
         )}
         {sidebarVisible && (
@@ -109,36 +114,6 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
         />
         )}
 
-        {/* Center: Chat or view (sources/settings/review) */}
-        {!sidebarVisible && !chatExpanded ? (
-          <div className="min-w-0 flex-1 overflow-hidden">
-            <ErrorBoundary>
-              <ContentArea />
-            </ErrorBoundary>
-          </div>
-        ) : (
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <ErrorBoundary>
-            <ContentArea />
-          </ErrorBoundary>
-        </div>
-        )}
-
-        {/* Chat panel (toggleable via sidebar icon) */}
-        {chatExpanded && (
-          <>
-            <div
-              className="w-1.5 shrink-0 cursor-col-resize bg-border/40 transition-colors hover:bg-primary/30 active:bg-primary/40"
-              onMouseDown={startDrag("right")}
-            />
-            <div
-              className="flex shrink-0 flex-col overflow-hidden border-l"
-              style={{ width: chatPanelWidth }}
-            >
-              <ChatBar />
-            </div>
-          </>
-        )}
 
         {/* Right panels */}
         {hasRightPanel && (
