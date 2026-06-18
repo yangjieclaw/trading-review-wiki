@@ -1,9 +1,7 @@
-﻿name: Build Windows
+name: Build Windows
 on: [push, workflow_dispatch]
-
 permissions:
   contents: write
-
 jobs:
   build:
     runs-on: windows-latest
@@ -12,14 +10,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: "npm"
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - run: npm ci
       - run: npm run build
       - name: Build
         env:
-          PROTOC: ${{ github.workspace }}\.protoc\bin\protoc.exe
+          PROTOC: D__a_trading-review-wiki_trading-review-wiki_.protoc_bin_protoc.exe
         shell: bash
         run: |
           rm -f src-tauri/.cargo/config.toml
