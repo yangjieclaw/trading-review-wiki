@@ -33,8 +33,13 @@ jobs:
           del /F /Q src-tauri\.cargo\config.toml 2>nul
           npx tauri build --bundles msi
 
-      - name: Upload MSI
-        uses: actions/upload-artifact@v4
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: trading-review-wiki-windows
-          path: src-tauri/target/release/bundle/msi/*.msi
+          tag_name: v0.10.6
+          files: src-tauri/target/release/bundle/msi/*.msi
+          body: |
+            - UI: 知识树/文件树和对话切换图标
+            - Save to Wiki: 弹窗选标题和目录
+            - 编译修复: PROTOC + USTC镜像
+          fail_on_unmatched_files: false
