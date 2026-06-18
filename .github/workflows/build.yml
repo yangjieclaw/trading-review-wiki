@@ -22,8 +22,10 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Install dependencies
+        run: |
+          npm install -g pnpm@10.33.0
+          npm ci
 
       - name: Build frontend
         run: npm run build
@@ -31,10 +33,10 @@ jobs:
       - name: Build Tauri app
         env:
           PROTOC: ${{ github.workspace }}\.protoc\bin\protoc.exe
-        shell: bash
         run: |
           rm -f src-tauri/.cargo/config.toml
           npx tauri build --bundles msi
+        shell: bash
 
       - name: Upload MSI to Release
         uses: softprops/action-gh-release@v2
