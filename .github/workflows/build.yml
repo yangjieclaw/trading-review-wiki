@@ -14,12 +14,12 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Build
-        env:
-          PROTOC: D__a_trading-review-wiki_trading-review-wiki_.protoc_bin_protoc.exe
         shell: bash
         run: |
           rm -f src-tauri/.cargo/config.toml
           npx tauri build --bundles msi
+        env:
+          PROTOC: ${{ github.workspace }}\.protoc\bin\protoc.exe
       - uses: actions/upload-artifact@v4
         with:
           name: trading-review-wiki-windows
