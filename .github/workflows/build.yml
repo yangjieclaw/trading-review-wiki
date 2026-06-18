@@ -13,12 +13,12 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Build
+        env:
+          PROTOC: ${{ github.workspace }}\.protoc\bin\protoc.exe
         shell: bash
         run: |
           rm -f src-tauri/.cargo/config.toml
-          rm -f ~/.cargo/config.toml
-          rm -f ~/.cargo/config
-          PROTOC=$(pwd)/.protoc/bin/protoc.exe npx tauri build --bundles msi
+          npx tauri build --bundles msi
       - uses: actions/upload-artifact@v4
         with:
           name: trading-review-wiki-windows
