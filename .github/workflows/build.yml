@@ -1,8 +1,5 @@
 ﻿name: Build Windows
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 permissions:
   contents: write
@@ -12,38 +9,22 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: "npm"
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install dependencies
-        run: |
-          npm install -g pnpm@10.33.0
-          npm ci
-
-      - name: Build frontend
-        run: npm run build
-
-      - name: Build Tauri app
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - run: npm run build
+      - name: Build
         env:
           PROTOC: ${{ github.workspace }}\.protoc\bin\protoc.exe
+        shell: bash
         run: |
           rm -f src-tauri/.cargo/config.toml
           npx tauri build --bundles msi
-        shell: bash
-
-      - name: Upload MSI to Release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: v0.10.6
-          files: src-tauri/target/release/bundle/msi/*.msi
-          fail_on_unmatched_files: false
+          name: trading-review-wiki-windows
+          path: src-tauri/target/release/bundle/msi/*.msi
