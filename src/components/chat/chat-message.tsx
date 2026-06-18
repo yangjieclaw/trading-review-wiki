@@ -370,63 +370,6 @@ function SaveToWikiButton({ content, visible }: { content: string; visible: bool
         </div>
       )}
 
-      {/* Save to Wiki dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>保存到 Wiki</DialogTitle>
-            <DialogDescription>输入标题并选择保存目录。</DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-2">
-            <div className="grid gap-2">
-              <label htmlFor="save-title" className="text-sm font-medium">标题</label>
-              <input
-                id="save-title"
-                value={saveTitle}
-                onChange={(e) => setSaveTitle(e.target.value)}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
-                placeholder="输入文件标题..."
-              />
-            </div>
-            <div className="grid gap-2">
-              <label htmlFor="save-dir" className="text-sm font-medium">保存目录</label>
-              <select
-                id="save-dir"
-                value={saveDir}
-                onChange={(e) => setSaveDir(e.target.value)}
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
-              >
-                <option value="queries">queries（查询）</option>
-                <option value="sources">sources（资料）</option>
-                <option value="策略">策略</option>
-                <option value="股票">股票</option>
-                <option value="模式">模式</option>
-                <option value="错误">错误</option>
-                <option value="市场环境">市场环境</option>
-                <option value="进化">进化</option>
-                <option value="预测">预测</option>
-                <option value="synthesis">synthesis（综合）</option>
-              </select>
-            </div>
-          </div>
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setDialogOpen(false)}
-              className="inline-flex items-center justify-center rounded-md px-3 py-1.5 text-sm font-medium hover:bg-accent"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              onClick={() => { setDialogOpen(false); handleSave(); }}
-              className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-            >
-              保存
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
