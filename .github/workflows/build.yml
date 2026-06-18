@@ -13,11 +13,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Build
-        env:
-          PROTOC: ${{ github.workspace }}\.protoc\bin\protoc.exe
-        shell: bash
         run: |
-          rm -f src-tauri/.cargo/config.toml
+          Remove-Item -Recurse -Force src-tauri/.cargo -ErrorAction SilentlyContinue
+          $env:PROTOC = "$env:GITHUB_WORKSPACE\.protoc\bin\protoc.exe"
           npx tauri build --bundles msi
       - uses: actions/upload-artifact@v4
         with:
