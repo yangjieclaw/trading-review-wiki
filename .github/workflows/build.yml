@@ -1,5 +1,7 @@
 name: Build Windows
 on: [push, workflow_dispatch]
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: windows-latest
@@ -19,7 +21,8 @@ jobs:
         run: |
           rm -f src-tauri/.cargo/config.toml
           npx tauri build --bundles msi
-      - uses: actions/upload-artifact@v4
-        with:
-          name: trading-review-wiki-windows
-          path: src-tauri/target/release/bundle/msi/*.msi
+      - name: Create Release
+        run: |
+          gh release create v0.10.6 src-tauri/target/release/bundle/msi/*.msi --title "v0.10.6" --notes "App with UI优化+Save弹窗" --target ${{ github.sha }}
+        env:
+          GH_TOKEN: ${{ github.token }}
